@@ -1362,7 +1362,7 @@ function renderBatteryRank(){
     '<th data-sort="share" style="text-align:center">市场份额 <span class="sort-ind">⇅</span></th>'+
     '<th data-sort="name">总部 <span class="sort-ind">⇅</span></th>'+
     '<th>主要客户</th>'+
-    '<th>官网 <span class=\"sort-ind\">⇅</span></th>'+
+    '<th>官网 <span class="sort-ind">⇅</span></th>'+
     '</tr></thead><tbody>'+rows+'</tbody></table></div></div>';
 }
 
@@ -1531,7 +1531,7 @@ function renderRobotMag(){
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
-        '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'
+        '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'+
         '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
       '</tr>';
     });
@@ -1559,7 +1559,7 @@ function renderRobotPower(){
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
-        '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'
+        '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'+
         '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
       '</tr>';
     });
@@ -1589,7 +1589,7 @@ function renderRobotAlg(){
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
-        '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'
+        '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'+
         '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
       '</tr>';
     });
