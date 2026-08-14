@@ -38,6 +38,7 @@ body{font-family:var(--f-body);background:var(--c-canvas);color:var(--c-text);fo
 .toolbar select:hover,.toolbar button:hover{border-color:var(--c-accent);color:var(--c-accent)}
 .toolbar button.export{background:var(--c-accent);color:#fff;border-color:var(--c-accent);display:inline-flex;align-items:center;gap:6px;font-weight:500}
 .toolbar button.export:hover{background:var(--c-accent-h)}
+mark{background:#fde68a;color:#92400e;border-radius:3px;padding:0 1px;font-weight:600}
 .result-info{font-size:13px;color:var(--c-muted);margin-left:auto;font-family:var(--f-mono)}
 .panel-intro{background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #bfdbfe;border-radius:var(--r-md);padding:14px 18px;margin-bottom:16px;color:#1e3a8a;font-size:13px;line-height:1.6}
 .panel-intro strong{color:#1e40af}
@@ -120,8 +121,9 @@ table tbody tr:last-child td{border-bottom:0}
   <div class="toolbar">
     <div class="search-box">
       <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-      <input type="text" id="searchInput" placeholder="在当前分类中搜索公司名称、产品、地区...">
+      <input type="text" id="searchInput" placeholder="搜索公司 / 产品 / 地区（跨全部分类）...">
     </div>
+    <select id="provFilter"><option value="">全部地区</option></select>
     <select id="catFilter"><option value="">全部类别</option></select>
     <button class="export" id="exportBtn">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -1184,6 +1186,40 @@ var TABS = [
   {id:'robotAlg', name:'算法/算力/AI大脑', icon:'🧠', count:DATA.robotAlg.length, render:renderRobotAlg}
 ];
 
+var PROVINCES=['北京','天津','上海','重庆','河北','山西','辽宁','吉林','黑龙江','江苏','浙江','安徽','福建','江西','山东','河南','湖北','湖南','广东','海南','四川','贵州','云南','陕西','甘肃','青海','台湾','内蒙古','广西','西藏','宁夏','新疆'];
+var COUNTRIES=['中国','日本','韩国','美国','德国','法国','英国','瑞士','瑞典','荷兰','丹麦','挪威','加拿大','意大利','西班牙','奥地利','比利时','芬兰','爱尔兰','新加坡','以色列','印度','俄罗斯','斯洛伐克'];
+
+function regionKey(o){
+  var raw;
+  if(typeof o==='string')raw=o;
+  else raw=(o.prov!=null?o.prov:(o.hq!=null?o.hq:(o.region!=null?o.region:'')));
+  raw=String(raw).replace(/^中国·/,'').trim();
+  if(!raw||raw==='—')return '未标注';
+  for(var i=0;i<PROVINCES.length;i++){if(raw.indexOf(PROVINCES[i])!==-1)return PROVINCES[i];}
+  for(var i=0;i<COUNTRIES.length;i++){if(raw.indexOf(COUNTRIES[i])!==-1)return COUNTRIES[i];}
+  return raw.length>3?raw.slice(0,2):raw;
+}
+
+function highlight(text,q){
+  text=String(text==null?'':text);
+  if(!q)return escapeHtml(text);
+  var i=text.toLowerCase().indexOf(String(q).toLowerCase());
+  if(i===-1)return escapeHtml(text);
+  return escapeHtml(text.slice(0,i))+'<mark>'+escapeHtml(text.slice(i,i+q.length))+'</mark>'+escapeHtml(text.slice(i+q.length));
+}
+
+var EXHIBITOR_ROWS=(function(){
+  var rows=[];var tmp=document.createElement('tbody');tmp.innerHTML=EXHIBITOR_TBODY;
+  tmp.querySelectorAll('tr').forEach(function(tr){
+    var nm=tr.querySelector('.cn-name');var en=tr.querySelector('.en-name');
+    var addr=tr.querySelector('.col-address');var web=tr.querySelector('.col-website');
+    rows.push({name:nm?nm.textContent.trim():'',en:en?en.textContent.trim():'',category:tr.dataset.category||'',search:tr.dataset.search||'',prov:regionKey(addr?addr.textContent.trim():''),website:web?web.textContent.trim():''});
+  });
+  return rows;
+})();
+
+var inGlobal=false;
+
 var currentTab='exhibitor';
 var sortState={col:null,dir:1};
 
@@ -1197,6 +1233,7 @@ function init(){
     if(btn)switchTab(btn.dataset.tab);
   });
   document.getElementById('catFilter').addEventListener('change',applyFilters);
+  document.getElementById('provFilter').addEventListener('change',applyFilters);
   document.getElementById('searchInput').addEventListener('input',applyFilters);
   document.getElementById('exportBtn').addEventListener('click',exportCSV);
   populateCategories();
@@ -1207,26 +1244,31 @@ function switchTab(id){
   currentTab=id;
   sortState={col:null,dir:1};
   document.getElementById('searchInput').value='';
-  populateCategories();
   document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.toggle('active',b.dataset.tab===id)});
   renderCurrent();
 }
 
 function populateCategories(){
-  var sel=document.getElementById('catFilter');
   var cats=[];
-  if(currentTab==='exhibitor'){
-    document.querySelectorAll('#exhibitor-tbody tr[data-category]').forEach(function(tr){
-      var c=tr.dataset.category;if(c&&cats.indexOf(c)===-1)cats.push(c);
-    });
-  }else if(currentTab==='batteryRank'){
-    sel.innerHTML='<option value="">全部</option>';return;
-  }else{
-    var arr=DATA[currentTab]||[];
-    arr.forEach(function(o){if(o.cat&&cats.indexOf(o.cat)===-1)cats.push(o.cat)});
-  }
+  TABS.forEach(function(t){
+    if(t.id==='exhibitor'){
+      EXHIBITOR_ROWS.forEach(function(o){String(o.category).split('|').forEach(function(c){c=c.trim();if(c&&cats.indexOf(c)===-1)cats.push(c)})});
+    }else{
+      (DATA[t.id]||[]).forEach(function(o){if(o.cat&&cats.indexOf(o.cat)===-1)cats.push(o.cat)});
+    }
+  });
   cats.sort(function(a,b){return a.localeCompare(b,'zh-Hans-CN')});
-  sel.innerHTML='<option value="">全部类别 ('+cats.length+')</option>'+cats.map(function(c){return '<option value="'+escapeAttr(c)+'">'+escapeHtml(c)+'</option>'}).join('');
+  document.getElementById('catFilter').innerHTML='<option value="">全部类别 ('+cats.length+')</option>'+cats.map(function(c){return '<option value="'+escapeAttr(c)+'">'+escapeHtml(c)+'</option>'}).join('');
+  var provs=[];
+  TABS.forEach(function(t){
+    if(t.id==='exhibitor'){
+      EXHIBITOR_ROWS.forEach(function(o){var p=o.prov;if(p&&provs.indexOf(p)===-1)provs.push(p)});
+    }else{
+      (DATA[t.id]||[]).forEach(function(o){var p=regionKey(o);if(p&&provs.indexOf(p)===-1)provs.push(p)});
+    }
+  });
+  provs.sort(function(a,b){return a.localeCompare(b,'zh-Hans-CN')});
+  document.getElementById('provFilter').innerHTML='<option value="">全部地区 ('+provs.length+')</option>'+provs.map(function(c){return '<option value="'+escapeAttr(c)+'">'+escapeHtml(c)+'</option>'}).join('');
 }
 
 function renderCurrent(){
@@ -1248,15 +1290,28 @@ function renderCurrent(){
 function applyFilters(){
   var q=(document.getElementById('searchInput').value||'').toLowerCase().trim();
   var cat=document.getElementById('catFilter').value;
+  var prov=document.getElementById('provFilter').value;
+  if(q){
+    inGlobal=true;
+    renderGlobal(q,cat,prov);
+    return;
+  }
+  if(inGlobal){
+    inGlobal=false;
+    renderCurrent();
+    return;
+  }
   var panel=document.getElementById('content');
   var rows=panel.querySelectorAll('tbody tr[data-search]');
   var shown=0;
   rows.forEach(function(tr){
     var s=tr.dataset.search.toLowerCase();
     var c=tr.dataset.category||'';
+    var p=tr.dataset.prov||'';
     var ok=true;
     if(q&&s.indexOf(q)===-1)ok=false;
-    if(cat&&c!==cat)ok=false;
+    if(cat){var parts=String(c).split('|');if(parts.indexOf(cat)===-1)ok=false;}
+    if(prov&&p!==prov)ok=false;
     tr.style.display=ok?'':'none';
     if(ok)shown++;
   });
@@ -1268,8 +1323,17 @@ function applyFilters(){
     }
     h.style.display=any?'':'none';
   });
+  paintHighlight(q);
   var tab=TABS.find(function(t){return t.id===currentTab});
   document.getElementById('resultInfo').textContent='显示 '+shown+' / '+tab.count+' 条';
+}
+
+function paintHighlight(q){
+  document.querySelectorAll('#content tbody tr[data-name]').forEach(function(tr){
+    var td=tr.querySelector('.col-name');if(!td)return;
+    var nm=tr.dataset.name||'';var en=tr.dataset.en||'';
+    td.innerHTML='<span class="cn-name">'+highlight(nm,q)+'</span>'+(en?'<span class="en-name">'+escapeHtml(en)+'</span>':'');
+  });
 }
 
 function sortTable(col,dir){
@@ -1343,7 +1407,7 @@ function renderBatteryRank(){
   var rows=DATA.batteryRank.map(function(d){
     var pct=(d.share/maxShare*100).toFixed(1);
     var rc=d.rank>0&&d.rank<=3?'rank-num rank-top3':'rank-num';
-    return '<tr data-search="'+(d.rank+' '+d.name+' '+d.gwh+' '+d.share+' '+d.hq+' '+d.cat+' '+d.app).toLowerCase()+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+d.rank+'" data-sort_gwh="'+d.gwh+'" data-sort_share="'+d.share+'">'+
+    return '<tr data-search="'+(d.rank+' '+d.name+' '+d.gwh+' '+d.share+' '+d.hq+' '+d.cat+' '+d.app).toLowerCase()+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+d.rank+'" data-sort_gwh="'+d.gwh+'" data-sort_share="'+d.share+'">'+
       '<td class="col-rank"><span class="'+rc+'">'+(d.rank||'—')+'</span></td>'+
       '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
       '<td class="bar-cell"><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:'+pct+'%"></div></div><div class="bar-val">'+d.gwh+' GWh</div></div></td>'+
@@ -1351,7 +1415,7 @@ function renderBatteryRank(){
       '<td>'+escapeHtml(d.hq)+'</td>'+
       '<td class="col-desc">'+escapeHtml(d.app)+'</td>'+
     +
-      '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+      '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
     '</tr>';
   }).join('');
   return '<div class="panel-intro"><strong>🔋 2025 年中国动力电池装机量 TOP15</strong> — 宁德时代以 333.37 GWh 稳居第一（45.4% 份额），比亚迪弗迪电池 148.17 GWh（20.2%）居次。TOP3 合计占 72.9%。</div>'+
@@ -1376,13 +1440,13 @@ function renderBatteryProv(){
     html+='<tr class="group-hd"><td colspan="6">'+escapeHtml(p)+' <span class="gcnt">'+list.length+' 家企业</span></td></tr>';
     list.forEach(function(d){
       var s=[d.prov,d.name,d.city,d.cat,d.prod].join(' ').toLowerCase();
-      html+='<tr data-search="'+s+'" data-category="'+escapeAttr(d.prov)+'" data-sort_name="'+escapeAttr(d.name)+'" data-sort_cat="'+escapeAttr(d.cat)+'">'+
+      html+='<tr data-search="'+s+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.prov)+'" data-sort_name="'+escapeAttr(d.name)+'" data-sort_cat="'+escapeAttr(d.cat)+'">'+
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.city)+'</td>'+
         '<td><span class="cat-tag">'+escapeHtml(d.cat)+'</span></td>'+
         '<td class="col-desc">'+escapeHtml(d.prod)+'</td>'+
       +
-        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
       '</tr>';
     });
   });
@@ -1405,13 +1469,13 @@ function renderBatteryMid(){
     html+='<tr class="group-hd"><td colspan="6">'+escapeHtml(c)+' <span class="gcnt">'+list.length+' 家</span></td></tr>';
     list.forEach(function(d){
       var s=[d.cat,d.name,d.type,d.hq,d.prod].join(' ').toLowerCase();
-      html+='<tr data-search="'+s+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
+      html+='<tr data-search="'+s+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
         '<td>'+escapeHtml(d.hq)+'</td>'+
         '<td class="col-desc">'+escapeHtml(d.prod)+'</td>'+
       +
-        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
       '</tr>';
     });
   }
@@ -1436,13 +1500,13 @@ function renderRobotBody(){
     html+='<tr class="group-hd"><td colspan="6">'+escapeHtml(c)+' <span class="gcnt">'+list.length+' 家</span></td></tr>';
     list.forEach(function(d){
       var s=[d.name,d.en,d.region,d.cat,d.prod].join(' ').toLowerCase();
-      html+='<tr data-search="'+s+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
+      html+='<tr data-search="'+s+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span>'+(d.en?'<span class="en-name">'+escapeHtml(d.en)+'</span>':'')+'</td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="cat-tag">'+escapeHtml(d.cat)+'</span></td>'+
         '<td class="col-desc">'+escapeHtml(d.prod||'—')+'</td>'+
       +
-        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
       '</tr>';
     });
   }
@@ -1467,13 +1531,13 @@ function renderRobotParts(){
     html+='<tr class="group-hd"><td colspan="6">'+escapeHtml(c)+' <span class="gcnt">'+list.length+' 家</span></td></tr>';
     list.forEach(function(d){
       var s=[d.cat,d.name,d.region,d.type,d.note].join(' ').toLowerCase();
-      html+='<tr data-search="'+s+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
+      html+='<tr data-search="'+s+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
         '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'+
       +
-        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
       '</tr>';
     });
   }
@@ -1498,12 +1562,12 @@ function renderRobotMotor(){
     html+='<tr class="group-hd"><td colspan="4">'+escapeHtml(c)+' <span class="gcnt">'+list.length+' 家</span></td></tr>';
     list.forEach(function(d){
       var s=[d.cat,d.name,d.region,d.type].join(' ').toLowerCase();
-      html+='<tr data-search="'+s+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
+      html+='<tr data-search="'+s+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
       +
-        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
       '</tr>';
     });
   }
@@ -1527,12 +1591,12 @@ function renderRobotMag(){
     html+='<tr class="group-hd"><td colspan="6">'+escapeHtml(c)+' <span class="gcnt">'+list.length+' 家</span></td></tr>';
     list.forEach(function(d){
       var s=[d.cat,d.name,d.region,d.type,d.note].join(' ').toLowerCase();
-      html+='<tr data-search="'+s+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
+      html+='<tr data-search="'+s+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
         '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'+
-        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
       '</tr>';
     });
   });
@@ -1555,12 +1619,12 @@ function renderRobotPower(){
     html+='<tr class="group-hd"><td colspan="6">'+escapeHtml(c)+' <span class="gcnt">'+list.length+' 家</span></td></tr>';
     list.forEach(function(d){
       var s=[d.cat,d.name,d.region,d.type,d.note].join(' ').toLowerCase();
-      html+='<tr data-search="'+s+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
+      html+='<tr data-search="'+s+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
         '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'+
-        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
       '</tr>';
     });
   }
@@ -1585,12 +1649,12 @@ function renderRobotAlg(){
     html+='<tr class="group-hd"><td colspan="6">'+escapeHtml(c)+' <span class="gcnt">'+list.length+' 家</span></td></tr>';
     list.forEach(function(d){
       var s=[d.cat,d.name,d.region,d.type,d.note].join(' ').toLowerCase();
-      html+='<tr data-search="'+s+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
+      html+='<tr data-search="'+s+'" data-prov="'+escapeAttr(regionKey(d))+'" data-name="'+escapeAttr(d.name)+'" data-en="'+escapeAttr(d.en||'')+'" data-category="'+escapeAttr(d.cat)+'" data-sort_name="'+escapeAttr(d.name)+'">'+
         '<td class="col-name"><span class="cn-name">'+escapeHtml(d.name)+'</span></td>'+
         '<td>'+escapeHtml(d.region)+'</td>'+
         '<td><span class="sub-tag">'+escapeHtml(d.type)+'</span></td>'+
         '<td class="col-desc">'+escapeHtml(d.note||'—')+'</td>'+
-        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>'):'—')+'</td>'+
+        '<td class="col-website">'+(d.website?'<a href="'+d.website+'" target="_blank" rel="noopener">'+escapeHtml(d.website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—')+'</td>'+
       '</tr>';
     });
   }
@@ -1604,6 +1668,56 @@ function renderRobotAlg(){
     '<th>产品/备注 <span class="sort-ind">⇅</span></th>'+
     '<th>官网 <span class="sort-ind">⇅</span></th>'+
     '</tr></thead><tbody>'+html+'</tbody></table></div></div>';
+}
+
+function renderGlobal(q,cat,prov){
+  q=(q||'').toLowerCase();
+  var out=[];var matched=0;var tabSet={};
+  TABS.forEach(function(t){
+    var items=(t.id==='exhibitor')?EXHIBITOR_ROWS:(DATA[t.id]||[]);
+    items.forEach(function(o){
+      var name,en,rawCat,region,website,search;
+      if(t.id==='exhibitor'){
+        name=o.name;en=o.en;rawCat=o.category;region=o.prov;website=o.website;search=o.search;
+      }else{
+        name=o.name;en=o.en||'';rawCat=o.cat;region=regionKey(o);website=o.website||'';search='';
+        for(var k in o){if(typeof o[k]==='string')search+=' '+o[k];}
+        search=search.toLowerCase();
+      }
+      var hay=(name+' '+(en||'')+' '+rawCat+' '+region+' '+search).toLowerCase();
+      if(q&&hay.indexOf(q)===-1)return;
+      if(cat){var parts=String(rawCat).split('|');if(parts.indexOf(cat)===-1)return;}
+      if(prov&&region!==prov)return;
+      matched++;tabSet[t.name]=1;
+      var cat2=(t.id==='exhibitor')?rawCat:(o.cat||o.type||'');
+      var wdisp=website?'<a href="'+escapeAttr(website)+'" target="_blank" rel="noopener">'+escapeHtml(website.replace(/^https?:\/\/(?:www\.)?/,'').split('/')[0])+'</a>':'—';
+      out.push('<tr data-search="'+escapeAttr(hay)+'" data-category="'+escapeAttr(rawCat)+'" data-prov="'+escapeAttr(region)+'" data-sort_name="'+escapeAttr(name)+'" data-sort_tab="'+escapeAttr(t.name)+'" data-sort_region="'+escapeAttr(region)+'" data-sort_cat="'+escapeAttr(cat2)+'">'+
+        '<td class="col-name"><span class="cn-name">'+highlight(name,q)+'</span>'+(en?'<span class="en-name">'+escapeHtml(en)+'</span>':'')+'</td>'+
+        '<td><span class="cat-tag">'+escapeHtml(t.name)+'</span></td>'+
+        '<td>'+highlight(region,q)+'</td>'+
+        '<td><span class="sub-tag">'+highlight(cat2,q)+'</span></td>'+
+        '<td class="col-website">'+wdisp+'</td>'+
+      '</tr>');
+    });
+  });
+  var intro='<div class="panel-intro"><strong>🔎 跨分类搜索</strong> — 关键词「'+escapeHtml(q||'')+'」匹配 <b>'+matched+'</b> 条，覆盖 '+Object.keys(tabSet).length+' 个分类'+(cat?' · 类别：'+escapeHtml(cat):'')+(prov?' · 地区：'+escapeHtml(prov):'')+'。清空搜索框可返回分类视图。</div>';
+  var table='<div class="table-wrap"><div class="table-scroll"><table><thead><tr>'+
+    '<th data-sort="name">企业/机构 <span class="sort-ind">⇅</span></th>'+
+    '<th data-sort="tab">所属分类 <span class="sort-ind">⇅</span></th>'+
+    '<th data-sort="region">地区 <span class="sort-ind">⇅</span></th>'+
+    '<th data-sort="cat">类别 <span class="sort-ind">⇅</span></th>'+
+    '<th>官网 <span class="sort-ind">⇅</span></th>'+
+  '</tr></thead><tbody>'+out.join('')+'</tbody></table></div></div>';
+  document.getElementById('content').innerHTML=intro+table;
+  document.getElementById('resultInfo').textContent='全局匹配 '+matched+' 条';
+  document.querySelectorAll('#content thead th[data-sort]').forEach(function(th){
+    th.addEventListener('click',function(){
+      var col=th.dataset.sort;
+      if(sortState.col===col)sortState.dir*=-1;
+      else{sortState.col=col;sortState.dir=1}
+      sortTable(col,sortState.dir);
+    });
+  });
 }
 
 function exportCSV(){
